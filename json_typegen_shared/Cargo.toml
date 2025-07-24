@@ -1,6 +1,6 @@
 [package]
 name = "json_typegen_shared"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Erik Vesteraas <erik@vestera.as>"]
 license = "MIT OR Apache-2.0"
 description = "Generate types from JSON samples. See repository for CLI, website and procedural macro variants."
