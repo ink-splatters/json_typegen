@@ -13,11 +13,13 @@ cfg_if! {
 }
 
 cfg_if! {
-    // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-    // allocator.
-    if #[cfg(feature = "wee_alloc")] {
+    // When the `lol_alloc` feature is enabled, use `lol_alloc` as the global
+    // allocator. This is a maintained replacement for the abandoned wee_alloc.
+    if #[cfg(all(feature = "lol_alloc", target_arch = "wasm32"))] {
+        use lol_alloc::{FreeListAllocator, LockedAllocator};
+
         #[global_allocator]
-        static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+        static ALLOC: LockedAllocator<FreeListAllocator> = LockedAllocator::new(FreeListAllocator::new());
     }
 }
 
