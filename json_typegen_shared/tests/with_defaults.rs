@@ -1,4 +1,4 @@
-use testsyn::{Item, parse_str};
+use syn::{Item, parse_str};
 
 use json_typegen_shared::{ImportStyle, Options, codegen};
 
