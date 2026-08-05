@@ -9,10 +9,10 @@ pub fn sql_to_shape(input: &str) -> Result<Vec<(String, Shape)>, String> {
     Ok(ast
         .iter()
         .filter_map(|stmt| match stmt {
-            Statement::CreateTable { name, columns, .. } => Some((
-                name.to_string(),
+            Statement::CreateTable ( table ) => Some((
+                table.name.to_string(),
                 Shape::Struct {
-                    fields: columns
+                    fields: table.columns
                         .iter()
                         .map(|column: &ColumnDef| {
                             (column.name.to_string(), shape_for_column(column))
@@ -34,7 +34,7 @@ fn shape_for_column(column: &ColumnDef) -> Shape {
         DataType::Varchar(_) |
         DataType::Nvarchar(_) |
         DataType::Text |
-        DataType::String => Shape::StringT,
+        DataType::String(_) => Shape::StringT,
         // DataType::Uuid => {}
         // DataType::CharacterLargeObject(_) => {}
         // DataType::CharLargeObject(_) => {}
@@ -49,17 +49,9 @@ fn shape_for_column(column: &ColumnDef) -> Shape {
         // DataType::Dec(_) => {}
         // DataType::Float(_) => {}
         DataType::TinyInt(_) |
-        DataType::UnsignedTinyInt(_) |
-        DataType::SmallInt(_) |
-        DataType::UnsignedSmallInt(_) |
-        DataType::MediumInt(_) |
-        DataType::UnsignedMediumInt(_) |
         DataType::Int(_) |
         DataType::Integer(_) |
-        DataType::UnsignedInt(_) |
-        DataType::UnsignedInteger(_) |
-        DataType::BigInt(_) |
-        DataType::UnsignedBigInt(_) => Shape::Integer,
+        DataType::Unsigned |
         // DataType::Real => {}
         // DataType::Double => {}
         // DataType::DoublePrecision => {}
