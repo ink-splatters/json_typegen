@@ -2,9 +2,9 @@
 //!
 //! Requires the "option-parsing" feature
 
-use syn;
-use syn::parse::{boolean, ident, string};
-use synom::{IResult, alt, call, named, punct};
+use syn::ext::IdentExt;
+use syn::parse::{Parse, ParseStream, Parser};
+use syn::{Ident, LitBool, LitStr, Token, braced, parenthesized};
 
 use crate::hints::Hint;
 use crate::options::{ImportStyle, InputMode, Options, OutputMode, StringTransform};
@@ -16,89 +16,78 @@ pub struct MacroInput {
     pub options: Options,
 }
 
-macro_rules! fail {
-    ($base:expr, $input:expr) => {
-        return Err(format!(
-            "{}, but remaining input was '{}'",
-            $base,
-            $input.trim()
-        ))
-    };
+mod keyword {
+    syn::custom_keyword!(json_typegen);
 }
 
-named!(string_or_ident -> String,
-    alt!(
-        ident => { |ident: syn::Ident| ident.to_string() }
-        |
-        string => { |lit: syn::StrLit| lit.value }
-    )
-);
+struct FullMacro(MacroInput);
 
-named!(comma_or_closing_brace -> &str,
-    alt!(punct!(",") | punct!("}"))
-);
+impl Parse for FullMacro {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        input.parse::<keyword::json_typegen>()?;
+        input.parse::<Token![!]>()?;
+
+        let content;
+        parenthesized!(content in input);
+        let macro_input = content.parse()?;
+
+        input.parse::<Token![;]>()?;
+
+        Ok(Self(macro_input))
+    }
+}
+
+impl Parse for MacroInput {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let name = parse_string(input, "First argument must be a string literal")?;
+
+        parse_comma(input, "Expected a comma after first argument")?;
+
+        let sample_source = parse_string(input, "Second argument must be a string literal")?;
+        let default_options = Options::macro_default();
+
+        let options = if input.is_empty() {
+            default_options
+        } else {
+            parse_comma(
+                input,
+                "Expected a comma or end of input after second argument",
+            )?;
+
+            if input.peek(LitStr) {
+                let options: LitStr = input.parse()?;
+                options.parse_with(move |input: ParseStream<'_>| {
+                    parse_options_block(input, default_options)
+                })?
+            } else {
+                parse_options_block(input, default_options)?
+            }
+        };
+
+        if !input.is_empty() {
+            return Err(input.error("Expected no further tokens after options block"));
+        }
+
+        Ok(Self {
+            name,
+            sample_source,
+            options,
+        })
+    }
+}
 
 /// Parses a full `json_typegen` macro invocation. E.g. something like
 /// `json_typegen!("Foo", "http://example.com/sample.json", { deny_unknown_fields });`
 pub fn full_macro(input: &str) -> Result<MacroInput, String> {
-    let input = input.trim();
-
-    let prefix = "json_typegen!(";
-    if !input.starts_with(prefix) {
-        fail!("Unable to parse macro. Expected 'json_typegen!('", input)
-    }
-
-    let suffix = ");";
-    if !input.ends_with(suffix) {
-        fail!("Unable to parse macro. Expected it to end with ');'", input)
-    }
-
-    let input = &input[prefix.len()..input.len() - suffix.len()].trim();
-
-    macro_input(input)
+    syn::parse_str::<FullMacro>(input)
+        .map(|input| input.0)
+        .map_err(|error| error.to_string())
 }
 
 /// Parses the arguments to a `json_typegen` macro invocation. E.g. something like
 /// `"Foo", "http://example.com/sample.json", { deny_unknown_fields }`
 pub fn macro_input(input: &str) -> Result<MacroInput, String> {
-    let (input, name) = match string(input) {
-        IResult::Done(input, lit) => (input, lit.value),
-        IResult::Error => fail!("First argument must be a string literal", input),
-    };
-
-    let input = skip(input, ",", "Expected a comma after first argument")?;
-
-    let (input, sample_source) = match string(input) {
-        IResult::Done(input, lit) => (input, lit.value),
-        IResult::Error => fail!("Second argument must be a string literal", input),
-    };
-
-    let default_options = Options::macro_default();
-
-    if input.trim().is_empty() {
-        return Ok(MacroInput {
-            name,
-            sample_source,
-            options: default_options,
-        });
-    }
-
-    let input = skip(
-        input,
-        ",",
-        "Expected a comma or end of input after second argument",
-    )?;
-
-    let options = match string(input) {
-        IResult::Done(_, lit) => options_with_defaults(&lit.value, default_options)?,
-        IResult::Error => options_with_defaults(input, default_options)?,
-    };
-
-    Ok(MacroInput {
-        name,
-        sample_source,
-        options,
-    })
+    syn::parse_str(input).map_err(|error| error.to_string())
 }
 
 /// Parses the options block of a `json_typegen` macro invocation. E.g. something like:
@@ -108,165 +97,173 @@ pub fn options(input: &str) -> Result<Options, String> {
 }
 
 fn options_with_defaults(input: &str, default_options: Options) -> Result<Options, String> {
-    let mut options = default_options;
+    (move |input: ParseStream<'_>| parse_options_block(input, default_options))
+        .parse_str(input)
+        .map_err(|error| error.to_string())
+}
 
-    let input_after_block = block(input, |remaining, option_name| match option_name.as_ref() {
-        "output_mode" => string_option(remaining, "output_mode", |val| {
-            options.output_mode = OutputMode::parse(&val).unwrap_or(OutputMode::Rust);
-        }),
-        "input_mode" => string_option(remaining, "input_mode", |val| {
-            options.input_mode = InputMode::parse(&val).unwrap_or(InputMode::Json);
-        }),
-        "derives" => string_option(remaining, "derives", |val| {
-            options.derives = val;
-        }),
-        "property_name_format" => string_option(remaining, "property_name_format", |val| {
-            options.property_name_format = StringTransform::parse(&val)
-        }),
-        "import_style" => string_option(remaining, "import_style", |val| {
-            options.import_style = ImportStyle::parse(&val).unwrap_or(ImportStyle::QualifiedPaths);
-        }),
-        "field_visibility" => string_option(remaining, "field_visibility", |val| {
-            options.field_visibility = Some(val);
-        }),
-        "deny_unknown_fields" => boolean_option(remaining, "deny_unknown_fields", |val| {
-            options.deny_unknown_fields = val;
-        }),
-        "use_default_for_missing_fields" => {
-            boolean_option(remaining, "use_default_for_missing_fields", |val| {
-                options.use_default_for_missing_fields = val;
-            })
-        }
-        "allow_option_vec" => boolean_option(remaining, "allow_option_vec", |val| {
-            options.allow_option_vec = val;
-        }),
-        "collect_additional" => boolean_option(remaining, "collect_additional", |val| {
-            options.collect_additional = val;
-        }),
-        "unwrap" => string_option(remaining, "unwrap", |val| {
-            options.unwrap = val;
-        }),
-        "infer_map_threshold" => string_option(remaining, "infer_map_threshold", |val| {
-            options.infer_map_threshold = val.parse().ok();
-        }),
-        key if key.is_empty() || key.starts_with('/') => {
-            let (rem, hints) = pointer_block(remaining)?;
-            for hint in hints {
-                options.hints.push((key.to_string(), hint));
+fn parse_options_block(input: ParseStream<'_>, mut options: Options) -> syn::Result<Options> {
+    let content;
+    braced!(content in input);
+
+    while !content.is_empty() {
+        let option_name = parse_option_name(&content)?;
+
+        match option_name.as_str() {
+            "output_mode" => {
+                let value = string_option(&content, "output_mode")?;
+                options.output_mode = OutputMode::parse(&value).unwrap_or(OutputMode::Rust);
             }
-            Ok(rem)
+            "input_mode" => {
+                let value = string_option(&content, "input_mode")?;
+                options.input_mode = InputMode::parse(&value).unwrap_or(InputMode::Json);
+            }
+            "derives" => options.derives = string_option(&content, "derives")?,
+            "property_name_format" => {
+                let value = string_option(&content, "property_name_format")?;
+                options.property_name_format = StringTransform::parse(&value);
+            }
+            "import_style" => {
+                let value = string_option(&content, "import_style")?;
+                options.import_style =
+                    ImportStyle::parse(&value).unwrap_or(ImportStyle::QualifiedPaths);
+            }
+            "field_visibility" => {
+                options.field_visibility = Some(string_option(&content, "field_visibility")?);
+            }
+            "deny_unknown_fields" => {
+                options.deny_unknown_fields = boolean_option(&content, "deny_unknown_fields")?;
+            }
+            "use_default_for_missing_fields" => {
+                options.use_default_for_missing_fields =
+                    boolean_option(&content, "use_default_for_missing_fields")?;
+            }
+            "allow_option_vec" => {
+                options.allow_option_vec = boolean_option(&content, "allow_option_vec")?;
+            }
+            "collect_additional" => {
+                options.collect_additional = boolean_option(&content, "collect_additional")?;
+            }
+            "unwrap" => options.unwrap = string_option(&content, "unwrap")?,
+            "infer_map_threshold" => {
+                let value = string_option(&content, "infer_map_threshold")?;
+                options.infer_map_threshold = value.parse().ok();
+            }
+            key if key.is_empty() || key.starts_with('/') => {
+                for hint in pointer_block(&content)? {
+                    options.hints.push((key.to_owned(), hint));
+                }
+            }
+            _ => return Err(content.error(format!("Unknown option: {option_name}"))),
         }
-        _ => Err(format!("Unknown option: {}", option_name)),
-    })?;
 
-    if !input_after_block.trim().is_empty() {
-        fail!("Expected no further tokens after options block", input);
+        parse_separator(&content)?;
     }
 
     Ok(options)
 }
 
-fn pointer_block(input: &str) -> Result<(&str, Vec<Hint>), String> {
+fn pointer_block(input: ParseStream<'_>) -> syn::Result<Vec<Hint>> {
     let mut hints = Vec::new();
 
-    let input = skip_colon(input)?;
+    parse_colon(input)?;
+    let content;
+    braced!(content in input);
 
-    let input_after_block = block(input, |input_after_key, key| match key.as_ref() {
-        "use_type" => string_option(input_after_key, "use_type", |val| {
-            let hint = match val.as_ref() {
-                "map" => Hint::default_map(),
-                _ => Hint::opaque_type(val),
-            };
-            hints.push(hint);
-        }),
-        "type_name" => string_option(input_after_key, "type_name", |val| {
-            hints.push(Hint::type_name(val));
-        }),
-        _ => Err(format!("Unknown option: {}", key)),
-    })?;
+    while !content.is_empty() {
+        let key = parse_option_name(&content)?;
 
-    Ok((input_after_block, hints))
-}
-
-fn string_option<'a, F: FnMut(String)>(
-    input: &'a str,
-    name: &'static str,
-    mut consumer: F,
-) -> Result<&'a str, String> {
-    let input = skip_colon(input)?;
-
-    match string(input) {
-        IResult::Done(rem, lit) => {
-            consumer(lit.value);
-            Ok(rem)
-        }
-        IResult::Error => fail!(
-            format!("The argument to '{}' has to be a string literal", name),
-            input
-        ),
-    }
-}
-
-fn boolean_option<'a, F: FnMut(bool)>(
-    input: &'a str,
-    name: &'static str,
-    mut consumer: F,
-) -> Result<&'a str, String> {
-    // interpret { foo, bar } as { foo: true, bar: true }
-    if let IResult::Done(_, _) = comma_or_closing_brace(input) {
-        consumer(true);
-        return Ok(input);
-    }
-
-    let input = skip_colon(input)?;
-
-    match boolean(input) {
-        IResult::Done(rem, val) => {
-            consumer(val);
-            Ok(rem)
-        }
-        IResult::Error => fail!(
-            format!("The argument to '{}' has to be a boolean literal", name),
-            input
-        ),
-    }
-}
-
-fn block<F>(input: &str, mut field_parser: F) -> Result<&str, String>
-where
-    F: FnMut(&str, String) -> Result<&str, String>,
-{
-    let mut input = skip(input, "{", "Expected an opening brace")?;
-
-    loop {
-        if let IResult::Done(rem, _) = punct!(input, "}") {
-            break Ok(rem);
+        match key.as_str() {
+            "use_type" => {
+                let value = string_option(&content, "use_type")?;
+                hints.push(if value == "map" {
+                    Hint::default_map()
+                } else {
+                    Hint::opaque_type(value)
+                });
+            }
+            "type_name" => {
+                let value = string_option(&content, "type_name")?;
+                hints.push(Hint::type_name(value));
+            }
+            _ => return Err(content.error(format!("Unknown option: {key}"))),
         }
 
-        let (remaining, key) = match string_or_ident(input) {
-            IResult::Done(rem, value) => (rem, value),
-            IResult::Error => fail!("Expected an option name", input),
-        };
+        parse_separator(&content)?;
+    }
 
-        let remaining = field_parser(remaining, key)?;
+    Ok(hints)
+}
 
-        if let IResult::Done(rem, _) = punct!(remaining, "}") {
-            break Ok(rem);
-        }
-
-        input = skip(remaining, ",", "Expected a comma or a closing brace")?;
+fn parse_option_name(input: ParseStream<'_>) -> syn::Result<String> {
+    if input.peek(LitStr) {
+        input.parse::<LitStr>().map(|literal| literal.value())
+    } else if input.peek(Ident::peek_any) {
+        input.call(Ident::parse_any).map(|ident| ident.to_string())
+    } else {
+        Err(input.error("Expected an option name"))
     }
 }
 
-fn skip_colon(input: &str) -> Result<&str, String> {
-    skip(input, ":", "Expected a colon")
+fn parse_string(input: ParseStream<'_>, message: &'static str) -> syn::Result<String> {
+    if !input.peek(LitStr) {
+        return Err(input.error(message));
+    }
+
+    input.parse::<LitStr>().map(|literal| literal.value())
 }
 
-fn skip<'a>(input: &'a str, symbol: &'static str, msg: &str) -> Result<&'a str, String> {
-    match punct!(input, symbol) {
-        IResult::Done(rem, _) => Ok(rem),
-        IResult::Error => fail!(msg, input),
+fn string_option(input: ParseStream<'_>, name: &'static str) -> syn::Result<String> {
+    parse_colon(input)?;
+
+    if !input.peek(LitStr) {
+        return Err(input.error(format!(
+            "The argument to '{name}' has to be a string literal"
+        )));
     }
+
+    input.parse::<LitStr>().map(|literal| literal.value())
+}
+
+fn boolean_option(input: ParseStream<'_>, name: &'static str) -> syn::Result<bool> {
+    // Interpret { foo, bar } as { foo: true, bar: true }.
+    if input.is_empty() || input.peek(Token![,]) {
+        return Ok(true);
+    }
+
+    parse_colon(input)?;
+
+    if !input.peek(LitBool) {
+        return Err(input.error(format!(
+            "The argument to '{name}' has to be a boolean literal"
+        )));
+    }
+
+    input.parse::<LitBool>().map(|literal| literal.value)
+}
+
+fn parse_comma(input: ParseStream<'_>, message: &'static str) -> syn::Result<()> {
+    if !input.peek(Token![,]) {
+        return Err(input.error(message));
+    }
+
+    input.parse::<Token![,]>().map(drop)
+}
+
+fn parse_separator(input: ParseStream<'_>) -> syn::Result<()> {
+    if input.is_empty() {
+        Ok(())
+    } else {
+        parse_comma(input, "Expected a comma or a closing brace")
+    }
+}
+
+fn parse_colon(input: ParseStream<'_>) -> syn::Result<()> {
+    if !input.peek(Token![:]) {
+        return Err(input.error("Expected a colon"));
+    }
+
+    input.parse::<Token![:]>().map(drop)
 }
 
 #[cfg(test)]
@@ -307,6 +304,23 @@ mod macro_input_tests {
                 options: Options::macro_default(),
             })
         );
+    }
+
+    #[test]
+    fn parses_raw_literals_and_string_encoded_options() {
+        let parsed = macro_input(
+            r##"r#"Bob"#, r#"{}"#, r#"{ deny_unknown_fields }"#"##,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.name, "Bob");
+        assert_eq!(parsed.sample_source, "{}");
+        assert!(parsed.options.deny_unknown_fields);
+    }
+
+    #[test]
+    fn rejects_tokens_after_options() {
+        assert!(macro_input(r#""Bob", "{}", "{}" trailing"#).is_err());
     }
 }
 
@@ -425,6 +439,29 @@ mod options_tests {
     }
 
     #[test]
+    fn parses_multiple_hints_for_one_pointer() {
+        let mut expected = Options::default();
+        expected
+            .hints
+            .push(("/value".to_string(), Hint::opaque_type("Value")));
+        expected
+            .hints
+            .push(("/value".to_string(), Hint::type_name("Renamed")));
+
+        assert_eq!(
+            options(
+                r#"{
+                    "/value": {
+                        "use_type": "Value",
+                        "type_name": "Renamed",
+                    },
+                }"#,
+            ),
+            Ok(expected)
+        );
+    }
+
+    #[test]
     fn parses_pointer_to_root() {
         let expected = Options::default();
 
@@ -480,6 +517,75 @@ mod options_tests {
             Ok(expected)
         );
     }
+
+    #[test]
+    fn parses_every_top_level_option_type() {
+        let expected = Options {
+            output_mode: OutputMode::Typescript,
+            input_mode: InputMode::Sql,
+            use_default_for_missing_fields: true,
+            deny_unknown_fields: true,
+            allow_option_vec: true,
+            field_visibility: Some("pub(crate)".into()),
+            derives: "Debug, Clone".into(),
+            property_name_format: Some(StringTransform::SnakeCase),
+            unwrap: "/data".into(),
+            import_style: ImportStyle::AssumeExisting,
+            collect_additional: true,
+            infer_map_threshold: Some(12),
+            ..Options::default()
+        };
+
+        assert_eq!(
+            options(
+                r#"{
+                    output_mode: "typescript",
+                    input_mode: "sql",
+                    derives: "Debug, Clone",
+                    property_name_format: "snake_case",
+                    import_style: "assume_existing",
+                    field_visibility: "pub(crate)",
+                    deny_unknown_fields: true,
+                    use_default_for_missing_fields,
+                    allow_option_vec: true,
+                    collect_additional,
+                    unwrap: "/data",
+                    infer_map_threshold: "12",
+                }"#,
+            ),
+            Ok(expected)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_option_value_types() {
+        let string_error = options("{ derives: true }").unwrap_err();
+        assert!(string_error.contains("string literal"));
+
+        let boolean_error = options(r#"{ deny_unknown_fields: "true" }"#).unwrap_err();
+        assert!(boolean_error.contains("boolean literal"));
+    }
+
+    #[test]
+    fn preserves_invalid_option_value_fallbacks() {
+        let expected = Options {
+            import_style: ImportStyle::QualifiedPaths,
+            ..Options::default()
+        };
+
+        assert_eq!(
+            options(
+                r#"{
+                    output_mode: "invalid",
+                    input_mode: "invalid",
+                    property_name_format: "invalid",
+                    import_style: "invalid",
+                    infer_map_threshold: "invalid",
+                }"#,
+            ),
+            Ok(expected)
+        );
+    }
 }
 
 #[cfg(test)]
@@ -508,5 +614,28 @@ mod full_macro_tests {
                 options: Options::macro_default(),
             })
         );
+    }
+
+    #[test]
+    fn full_macro_accepts_rust_whitespace_and_comments() {
+        let parsed = full_macro(
+            r#"
+                json_typegen /* generated */ ! (
+                    "Bob",
+                    "{}",
+                    { deny_unknown_fields }
+                );
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.name, "Bob");
+        assert!(parsed.options.deny_unknown_fields);
+    }
+
+    #[test]
+    fn full_macro_rejects_other_macros_and_missing_semicolons() {
+        assert!(full_macro(r#"other!("Bob", "{}");"#).is_err());
+        assert!(full_macro(r#"json_typegen!("Bob", "{}")"#).is_err());
     }
 }
