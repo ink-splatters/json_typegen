@@ -186,7 +186,7 @@ fn infer_from_sample(
     let parse_result = match *source {
         #[cfg(feature = "remote-samples")]
         SampleSource::Url(url) => {
-            shape_from_json(ureq::get(url).call()?.into_reader(), options, hints)
+            shape_from_json(ureq::get(url).call()?.into_body().into_reader(), options, hints)
         }
 
         #[cfg(all(feature = "local-samples", feature = "progress"))]
