@@ -45,11 +45,9 @@ jobs:
         run: cargo run
         working-directory: json_typegen_demo
 
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '26.x'
-          cache: 'npm'
-          cache-dependency-path: json_typegen_web/package-lock.json
+          bun-version-file: json_typegen_web/package.json
 
       - name: Install wasm-pack
         run: curl https://wasm-bindgen.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -57,8 +55,8 @@ jobs:
       - run: wasm-pack build --target web
         working-directory: json_typegen_wasm
 
-      - run: npm ci
+      - run: bun ci
         working-directory: json_typegen_web
 
-      - run: npm run build
+      - run: bun run build:web
         working-directory: json_typegen_web

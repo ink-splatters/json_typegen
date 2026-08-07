@@ -1,27 +1,25 @@
 # `json_typegen_web`
 
-Web interface for `json_typegen` using Web Assembly
+Web interface for `json_typegen` using WebAssembly.
 
-See [main project repo](https://github.com/evestera/json_typegen) for more extensive README
-
-Need [wasm-pack](https://github.com/rustwasm/wasm-pack) installed.
+See the [main project repository](https://github.com/evestera/json_typegen) for
+project documentation.
 
 ## Development
 
-For development, run e.g.
+Install [wasm-pack](https://github.com/rustwasm/wasm-pack) and Bun 1.3.13. Build
+the local wasm package before installing the web dependencies:
 
 ```sh
-(cd .. && watchexec -e rs -- wasm-pack build --target web json_typegen_wasm)
+bun run build:wasm
+bun ci
+bun run dev
 ```
 
-and
+When changing Rust sources, rebuild the wasm package in another terminal:
 
 ```sh
-npm run dev
+watchexec -w ../json_typegen_wasm -e rs,toml -- bun run build:wasm
 ```
 
-If you're not touching the Rust code, you can build the wasm package just once with
-
-```sh
-(cd ../json_typegen_wasm && wasm-pack build --target web)
-```
+Run `bun run build` to create the production site in `dist/`.

@@ -4,7 +4,7 @@
 VERSION=v0.3.3
 git checkout master
 # update Cargo.toml and README files with $VERSION
-# in json_typegen_web: npm version <major|minor|patch>
+# in json_typegen_web: bun pm version <major|minor|patch>
 git commit -am "Release $VERSION"
 git tag $VERSION
 cd json_typegen_shared
@@ -14,9 +14,9 @@ cargo publish
 cd ../json_typegen_cli
 cargo publish
 cd ../json_typegen_web
-npm run deploy
+bun run deploy
 cd ../json_typegen_wasm/pkg
-npm publish
+bun publish
 
 git push origin master $VERSION
 # create release on github
