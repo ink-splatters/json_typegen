@@ -1,6 +1,6 @@
 [package]
 name = "json_typegen"
-version = "0.7.0"
+version = "0.8.0-dev"
 authors = ["Erik Vesteraas <erik@vestera.as>"]
 license = "MIT OR Apache-2.0"
 description = "Procedural macro that generates Rust types from JSON samples"
@@ -19,7 +19,7 @@ local-samples = ["json_typegen_shared/local-samples"]
 
 [dependencies.json_typegen_shared]
 path = "../json_typegen_shared"
-version = "0.7"
+version = "0.8.0-dev"
 default-features = false
 features = ["option-parsing"]
 

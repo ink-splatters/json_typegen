@@ -1,6 +1,6 @@
 [package]
 name = "json_typegen_cli"
-version = "0.7.0"
+version = "0.8.0-dev"
 authors = ["Erik Vesteraas <erik@vestera.as>"]
 license = "MIT OR Apache-2.0"
 description = "Command line utility for generating Rust, Kotlin and TypeScript types from JSON samples"
@@ -17,7 +17,7 @@ clap = "2.33.3"
 
 [dependencies.json_typegen_shared]
 path = "../json_typegen_shared"
-version = "0.7"
+version = "0.8.0-dev"
 features = ["progress"]
 
 [[bin]]
