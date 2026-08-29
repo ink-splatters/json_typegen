@@ -1,6 +1,6 @@
 [package]
 name = "json_typegen_demo"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 authors = ["Erik Vesteraas <erik@vestera.as>"]
 license = "MIT/Apache-2.0"
 publish = false
@@ -10,4 +10,4 @@ edition = "2024"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-json_typegen = { path = "../json_typegen", version = "0.8.0-dev" }
+json_typegen = { path = "../json_typegen", version = "0.8.0-dev.20260829T092339Z" }

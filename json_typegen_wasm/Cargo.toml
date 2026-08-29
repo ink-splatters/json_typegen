@@ -1,6 +1,6 @@
 [package]
 name = "json_typegen_wasm"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 authors = ["Erik Vesteraas <erik@vestera.as>"]
 edition = "2024"
 publish = false

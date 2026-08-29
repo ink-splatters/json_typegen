@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "json_typegen"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 dependencies = [
  "json_typegen_shared",
  "serde",
@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "json_typegen_cli"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 dependencies = [
  "clap",
  "json_typegen_shared",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "json_typegen_demo"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 dependencies = [
  "json_typegen",
  "serde",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "json_typegen_shared"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 dependencies = [
  "criterion",
  "indicatif",
@@ -488,7 +488,7 @@ dependencies = [
 
 [[package]]
 name = "json_typegen_wasm"
-version = "0.8.0-dev"
+version = "0.8.0-dev.20260829T092339Z"
 dependencies = [
  "cfg-if 0.1.10",
  "console_error_panic_hook",
